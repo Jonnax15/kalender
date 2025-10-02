@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kalender 02.10.25 bis 15.10.25</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .shimmer {
+        position: absolute; inset: -2px; border-radius: 16px; pointer-events: none;
+        background: linear-gradient(90deg, transparent, rgba(16,185,129,.2), transparent);
+        transform: translateX(-120%);
+        animation: slide 1.2s ease-out forwards;
+      }
+      @keyframes slide { to { transform: translateX(120%); } }
+      .tick-enter { transform: scale(.6); opacity: 0; }
+      .tick-enter-active { transform: scale(1); opacity: 1; transition: transform 350ms ease, opacity 350ms ease; }
+      .bar { transition: width 700ms cubic-bezier(.2,.8,.2,1); }
+      .hearts::before {
+        content: "❤️💖❤️";
+        position: absolute;
+        top: -10px;
+        right: -10px;
+        font-size: 1.2rem;
+        animation: float 2s infinite ease-in-out;
+        z-index: 50; /* Sicherstellen, dass die Herzen vor der Linie stehen */
+      }
+      @keyframes float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-6px); }
+      }
+      .heart-bg {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        z-index: 0;
+      }
+      .heart-bg span {
+        font-size: 3rem;
+        line-height: 1;
+        color: rgba(255,192,203,0.12);
+        animation: pulse 3s infinite ease-in-out;
+      }
+      @keyframes pulse {
+        0%, 100% { transform: scale(1); opacity: 0.12; }
+        50% { transform: scale(1.15); opacity: 0.2; }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen w-full bg-gradient-to-b from-slate-900 via-slate-950 to-black text-slate-100 p-6">
+    <div class="max-w-3xl mx-auto" id="app"></div>
+
+    <script type="module">
+      const TZ = "Europe/Berlin";
+      const START = "2025-10-02";
+      const END = "2025-10-15";
+      const STORAGE_KEY = "kalender-checks-2025-10-02_2025-10-15";
+      let clickLock = false; // verhindert doppeltes, schnelles Klicken während der Animation
+
+      const $ = (s, r=document) => r.querySelector(s);
+      const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+
+      function formatDateInTZ(date, tz) {
+        const parts = new Intl.DateTimeFormat("de-DE", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" })
+          .formatToParts(date).reduce((a,p)=>(a[p.type]=p.value,a),{});
+        return `${parts.year}-${parts.month}-${parts.day}`;
+      }
+      function toParts(iso) { const [y,m,d] = iso.split("-").map(Number); return {y,m,d}; }
+      function makeDate(y,m,d){ return new Date(Date.UTC(y,m-1,d)); }
+      function daysBetween(a,b){
+        return Math.round((makeDate(...Object.values(toParts(b))) - makeDate(...Object.values(toParts(a))))/(1000*60*60*24));
+      }
+      function range(start,end){
+        const total = daysBetween(start,end)+1; const s=toParts(start); const out=[];
+        for(let i=0;i<total;i++){ const d=makeDate(s.y,s.m,s.d+i); const iso=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`; out.push(iso);} return out;
+      }
+      function display(iso){ const {y,m,d}=toParts(iso); return `${String(d).padStart(2,'0')}.${String(m).padStart(2,'0')}.${y}`; }
+
+      const allDays = range(START, END);
+      let todayIso = formatDateInTZ(new Date(), TZ);
+      let checks = {};
+      try { checks = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch {}
+
+      function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(checks)); }
+
+      function render(){
+        todayIso = formatDateInTZ(new Date(), TZ);
+        const lastCheckable = allDays.filter(d=>d<=todayIso).slice(-1)[0] ?? allDays[0];
+        const canCheckUntil = lastCheckable < END ? lastCheckable : END;
+        const remainingToEnd = Math.max(0, daysBetween(todayIso, END));
+        const doneCount = allDays.filter(d=>checks[d]).length;
+        const openCount = allDays.length - doneCount;
+        const progress = Math.round((doneCount / allDays.length) * 100);
+
+        $('#app').innerHTML = `
+          <header class="mb-6 flex items-center justify-between">
+            <div>
+              <h1 class="text-3xl md:text-4xl font-semibold tracking-tight">Mein Zeitplan</h1>
+              <p class="text-slate-300 mt-1">02.10.2025 bis 15.10.2025</p>
+            </div>
+            <button id="reset" class="rounded-2xl px-4 py-2 bg-slate-800/60 hover:bg-slate-800 shadow-lg shadow-slate-900/40 transition">Zurücksetzen</button>
+          </header>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            ${infoCard("Heute", display(todayIso), "Europa Berlin")}
+            ${infoCard("Noch bis 15.10.", `${remainingToEnd} Tage`, "inkl. heute gezählt")}
+            ${infoCard("Fortschritt", `${progress}%`, `${doneCount} geschafft · ${openCount} offen`)}
+          </div>
+
+          <div class="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-400/10 p-4 flex items-center gap-3">
+            <div class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></div>
+            <p class="text-emerald-200">Du kannst bis einschließlich <span class="font-medium text-emerald-300">${display(canCheckUntil)}</span> abhaken.</p>
+          </div>
+
+          <div class="mb-6">
+            <div class="h-3 rounded-full bg-slate-800 overflow-hidden">
+              <div class="h-full bg-emerald-400 bar" style="width:${progress}%"></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            ${allDays.map(day=>dayCard(day, {disabled: day>todayIso, checked: !!checks[day], isLimit: day===canCheckUntil})).join("")}
+          </div>
+
+          <footer class="mt-10 text-slate-400 text-sm"><p>Hinweis: Der Status wird lokal im Browser gespeichert.</p></footer>
+        `;
+
+        $('#reset').addEventListener('click', ()=>{ if(confirm('Alles zurücksetzen?')){ checks={}; save(); render(); }});
+        $$('.day').forEach(el=>{
+          el.addEventListener('click', ()=>{
+            const day = el.dataset.day;
+            if (el.dataset.disabled === 'true') return;
+            if (clickLock) return; // blocke schnelle Doppelklicks
+
+            const willCheck = !checks[day];
+            if (willCheck) {
+              checks[day] = true;
+            } else {
+              delete checks[day];
+            }
+            save();
+
+            // Animationen abspielen, dann erst neu rendern
+            if (willCheck) {
+              const s = document.createElement('div');
+              s.className = 'shimmer';
+              el.appendChild(s);
+
+              const tick = el.querySelector('.tick');
+              if (tick) {
+                tick.classList.add('tick-enter');
+                requestAnimationFrame(()=>tick.classList.add('tick-enter-active'));
+              }
+
+              clickLock = true;
+              setTimeout(()=>{
+                clickLock = false;
+                render();
+              }, 400);
+            } else {
+              clickLock = true;
+              setTimeout(()=>{
+                clickLock = false;
+                render();
+              }, 200);
+            }
+          });
+        });
+      }
+
+      function infoCard(title, value, sub){
+        return `<div class="rounded-2xl bg-slate-900/60 backdrop-blur border border-slate-800 p-4 shadow-xl">
+          <div class="text-sm text-slate-400">${title}</div>
+          <div class="text-2xl font-semibold mt-1">${value}</div>
+          ${sub?`<div class=\"text-xs text-slate-500 mt-1\">${sub}</div>`:""}
+        </div>`;
+      }
+
+      function dayCard(day, {disabled, checked, isLimit}){
+        const isSpecial = day === "2025-10-07";
+        return `<button data-day="${day}" data-disabled="${disabled}" class="day relative rounded-2xl border p-4 text-left transition w-full ${isSpecial? 'hearts bg-pink-900/40 border-pink-500/60':'bg-slate-900/60'} backdrop-blur shadow-xl ${checked? (isSpecial? 'border-pink-400/80':'border-emerald-400/60'):'border-slate-800'} ${disabled? 'opacity-60 cursor-not-allowed':'hover:-translate-y-0.5 hover:shadow-2xl'}">
+          ${isSpecial?'<div class=\"heart-bg\"><span>❤</span></div>':''}
+          ${isLimit?'<div class=\"pointer-events-none absolute inset-0 rounded-2xl ring-2 ring-emerald-400/60\"></div>':''}
+          <div class="relative z-10 flex items-center justify-between">
+            <div>
+              <div class="text-xs text-slate-400">Datum</div>
+              <div class="text-lg font-medium">${display(day)}</div>
+            </div>
+            <span class="inline-flex items-center justify-center h-8 w-8 rounded-xl border ${checked? (isSpecial? 'bg-pink-400/20 border-pink-400':'bg-emerald-400/20 border-emerald-400'):'border-slate-700'}">
+              ${checked ? (isSpecial? heartIcon():checkIcon()) : dot()}
+            </span>
+          </div>
+          ${!disabled ? '<div class="mt-3 text-xs text-emerald-300/80">Klicke zum Abhaken</div>' : ''}
+        </button>`;
+      }
+
+      function checkIcon(){
+        return `<svg class="tick h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+      }
+      function heartIcon(){
+        // Neues, zentriertes Herz (Material-Style), passt perfekt in 24x24 und clippt nicht
+        return `<svg class="tick text-pink-400" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" preserveAspectRatio="xMidYMid meet" style="display:block;margin:auto">
+          <path d="M12.1 21.35L10.7 20.03C5.4 15.36 2 12.28 2 8.5 2 5.46 4.46 3 7.5 3c2.04 0 3.81 1.12 4.6 2.77C12.89 4.12 14.66 3 16.7 3 19.74 3 22.2 5.46 22.2 8.5c0 3.78-3.4 6.86-8.65 11.54l-1.45 1.31z"/>
+        </svg>`;
+      }
+      function dot(){ return '<span class="block h-2 w-2 rounded-full opacity-60"></span>'; }
+
+      render();
+      setInterval(()=>{ const t = formatDateInTZ(new Date(), TZ); if(t!==todayIso){ render(); } }, 60000);
+    </script>
+  </body>
+</html>
