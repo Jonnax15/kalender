@@ -144,15 +144,13 @@
       const START = "2025-10-02";
       const END = "2025-10-15";
 
-      const STORAGE_KEY = "kalender-checks-2025-10-02_2025-10-15"; // nutzt jetzt {checks,notes}
-      const API_URL = "/api/checks"; // Backend muss {checks,notes} GET/PUT sprechen
+      const STORAGE_KEY = "kalender-checks-2025-10-02_2025-10-15";
+      const API_URL = "/api/checks"; // im lokalen Test ggf. null setzen
 
       let clickLock = false;
 
       let checks = {};
-      let notes  = {};
       let remoteReady = false;
-      let pollerId = null;
 
       const $ = (s,r=document)=>r.querySelector(s);
       const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
@@ -184,111 +182,47 @@
       }
       function display(iso){const{y,m,d}=toParts(iso);return `${pad(d)}.${pad(m)}.${y}`;}
 
-      const allDays=range(START,END); let todayIso=formatDateInTZ(new Date(),TZ);
+      /* ✅ Nur HIER deklarieren (nicht nochmal unten!) */
+      const allDays = range(START, END);
+      let todayIso = formatDateInTZ(new Date(), TZ);
 
       /* Theme */
       let theme=localStorage.getItem('theme')||'dark';
       function applyTheme(){ document.body.classList.toggle('theme-light', theme==='light'); }
       applyTheme();
 
-      /* ===== Local helpers ===== */
-      function readLocalState(){
-        try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); }
-        catch { return {}; }
-      }
-      function writeLocalState(){
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ checks, notes }));
-      }
-      // einmalige Migration alter note::YYYY-MM-DD Keys
-      function migrateLegacyNotesInto(obj){
-        const migrated = { ...(obj.notes||{}) };
-        Object.keys(localStorage).forEach(k=>{
-          if(k.startsWith('note::')){
-            const day = k.slice(6);
-            if (!migrated[day]) {
-              const val = localStorage.getItem(k);
-              if (val) migrated[day] = val;
-            }
-            // optional: altes Key löschen
-            // localStorage.removeItem(k);
-          }
-        });
-        return migrated;
-      }
-
-      /* ===== Remote laden/speichern ===== */
+      /* Daten laden (robust) */
       async function loadRemote(){
         try {
-          // Lokales State zuerst einlesen (optimistisches Rendern)
-          const local = readLocalState();
-          checks = local.checks || {};
-          notes  = migrateLegacyNotesInto(local) || {};
-
-          // Wenn kein Server nutzbar (file:// o. API_URL leer), direkt rendern
-          if (location.protocol === 'file:' || !API_URL) return;
-
-          const r = await fetch(API_URL, { headers: { 'Accept': 'application/json' }, cache:'no-store' });
+          if (location.protocol === 'file:' || !API_URL) {
+            try { checks = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch {}
+            return;
+          }
+          const r = await fetch(API_URL, { headers: { 'Accept': 'application/json' } });
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const data = await r.json();
-          if (data && (data.checks || data.notes)) {
-            checks = data.checks || {};
-            // Server gewinnt, aber lokale Migration dazumergen (nur wenn dort noch nichts steht)
-            const mergedNotes = { ...(data.notes||{}) };
-            Object.entries(notes).forEach(([d, txt])=>{
-              if (txt && !mergedNotes[d]) mergedNotes[d] = txt;
-            });
-            notes = mergedNotes;
-            writeLocalState();
-          }
+          checks = data?.checks || {};
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(checks));
         } catch (e) {
           console.warn('Remote nicht erreichbar – nutze lokale Kopie.', e);
-          const local = readLocalState();
-          checks = local.checks || {};
-          notes  = migrateLegacyNotesInto(local) || {};
+          try { checks = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch {}
         } finally {
           remoteReady=true;
           render();
-          startRemotePolling(); // Auto-Refresh
         }
       }
       loadRemote();
 
       const save=debounce(async()=>{
-        writeLocalState();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(checks));
         try{
           if (API_URL) {
-            await fetch(API_URL,{
-              method:'PUT',
-              headers:{'Content-Type':'application/json'},
-              body:JSON.stringify({ checks, notes })
-            });
+            await fetch(API_URL,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({checks})});
           }
         }catch(e){ console.error('Remote save failed', e); }
       },250);
 
-      function startRemotePolling(intervalMs = 15000){
-        if (!API_URL || pollerId) return;
-        pollerId = setInterval(async ()=>{
-          try{
-            const r = await fetch(API_URL, { headers:{'Accept':'application/json'}, cache:'no-store' });
-            if(!r.ok) return;
-            const data = await r.json();
-            const incomingChecks = data?.checks || {};
-            const incomingNotes  = data?.notes  || {};
-            const changed = (JSON.stringify(incomingChecks)!==JSON.stringify(checks)) ||
-                            (JSON.stringify(incomingNotes)!==JSON.stringify(notes));
-            if (changed){
-              checks = incomingChecks;
-              notes  = incomingNotes;
-              writeLocalState();
-              render();
-            }
-          }catch{}
-        }, intervalMs);
-        window.addEventListener('focus', async ()=>{ try{ await loadRemote(); }catch{} });
-      }
-
-      /* ===== Notebook-Feature ===== */
+      /* Notebook */
       const nbRoot = document.getElementById('nb-modal-root');
       const nbText = document.getElementById('nb-text');
       const nbPreview = document.getElementById('nb-preview');
@@ -296,7 +230,7 @@
       const nbBtnCancel = document.getElementById('nb-cancel');
       const nbBtnClear = document.getElementById('nb-clear');
       const nbTitle = document.getElementById('nb-modal-title');
-      let nbCurrentDay = null;
+      let nbCurrentKey = null;
 
       function mdLite(str){
         if(!str) return "";
@@ -309,10 +243,11 @@
         out = out.replace(/\n/g, '<br>');
         return out;
       }
-      function openModal(title, day){
-        nbCurrentDay = day;
+      function storageKeyFor(dateStr){ return `note::${dateStr}`; }
+      function openModal(title, key){
+        nbCurrentKey = key;
         nbTitle.textContent = title || 'Notiz';
-        const existing = notes[day] || '';
+        const existing = localStorage.getItem(key) || '';
         nbText.value = existing;
         nbPreview.innerHTML = mdLite(existing);
         nbRoot.classList.add('is-open');
@@ -322,26 +257,12 @@
       function closeModal(){
         nbRoot.classList.remove('is-open');
         nbRoot.setAttribute('aria-hidden','true');
-        nbCurrentDay = null;
+        nbCurrentKey = null;
       }
       nbText.addEventListener('input', ()=>{ nbPreview.innerHTML = mdLite(nbText.value); });
-      nbBtnSave.addEventListener('click', ()=>{ 
-        if(!nbCurrentDay) return; 
-        const val = nbText.value.trim();
-        if (val) notes[nbCurrentDay] = val; else delete notes[nbCurrentDay];
-        save(); 
-        closeModal(); 
-      });
+      nbBtnSave.addEventListener('click', ()=>{ if(!nbCurrentKey) return; localStorage.setItem(nbCurrentKey, nbText.value.trim()); closeModal(); });
       nbBtnCancel.addEventListener('click', closeModal);
-      nbBtnClear.addEventListener('click', ()=>{ 
-        if(!nbCurrentDay) return; 
-        if(confirm('Notiz wirklich löschen?')){
-          delete notes[nbCurrentDay];
-          nbText.value=''; nbPreview.innerHTML=''; 
-          save(); 
-          closeModal(); 
-        } 
-      });
+      nbBtnClear.addEventListener('click', ()=>{ if(!nbCurrentKey) return; if(confirm('Notiz wirklich löschen?')){ localStorage.removeItem(nbCurrentKey); nbText.value=''; nbPreview.innerHTML=''; closeModal(); } });
       nbRoot.addEventListener('click', (e)=>{ if(e.target===nbRoot) closeModal(); });
       document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && nbRoot.classList.contains('is-open')) closeModal(); });
 
@@ -366,17 +287,15 @@
           btn.addEventListener('click', (e)=>{
             e.stopPropagation();
             const title = `Notiz – ${display(day)}`;
-            openModal(title, day);
+            const key = storageKeyFor(day);
+            openModal(title, key);
           });
 
           card.appendChild(btn);
         });
       }
 
-      /* ===== Render ===== */
-      const allDays=range(START,END); 
-      let todayIso=formatDateInTZ(new Date(),TZ);
-
+      /* Render */
       function render(){
         if(!remoteReady){
           $('#app').innerHTML='<div class="p-10 text-center text-slate-300">Lade Fortschritt…</div>';
@@ -424,11 +343,11 @@
             ${allDays.map(day=>dayCard(day,{disabled:day>todayIso,checked:!!checks[day],isLimit:day===canCheckUntil})).join('')}
           </div>
 
-          <footer class="mt-10 text-slate-400 text-sm"><p>Hinweis: Fortschritt & Notizen werden zentral gespeichert.</p></footer>
+          <footer class="mt-10 text-slate-400 text-sm"><p>Hinweis: Fortschritt wird zentral gespeichert.</p></footer>
         `;
 
         $('#reset').addEventListener('click', ()=>{ 
-          if(confirm('Alles zurücksetzen?')){ checks={}; notes={}; save(); render(); } 
+          if(confirm('Alles zurücksetzen?')){ checks={}; save(); render(); } 
         });
         $('#theme').addEventListener('click', ()=>{ 
           theme = (theme==='light'?'dark':'light'); 
