@@ -132,25 +132,30 @@
     </div>
 
     <script type="module">
-      /* Fehler Overlay */
-      window.addEventListener('error', (e) => {
-        const div = document.createElement('div');
-        div.style.cssText = 'position:fixed;bottom:8px;left:8px;right:8px;background:#111;color:#fff;border:1px solid #ef4444;padding:10px;border-radius:12px;z-index:9999;font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;';
-        div.textContent = 'JS-Fehler: ' + (e?.error?.message || e.message || 'Unbekannt');
-        document.body.appendChild(div);
-      });
+      /* ---------- Sync-Konfiguration ---------- */
+      // WICHTIG:
+      // - Wenn du die Datei lokal (file://) öffnest, MUSS API_URL ABSOLUT sein (https://…).
+      // - Bei Hosting unter derselben Domain kann API_URL relativ sein (z. B. "/api/checks").
+      const API_URL = "/api/checks"; // z.B. "https://deine-domain.tld/api/checks"
+
+      function resolveApiUrl() {
+        if (!API_URL) return null;
+        const isFile = location.protocol === 'file:';
+        const isAbsolute = /^https?:\/\//i.test(API_URL);
+        if (isFile) return isAbsolute ? API_URL : null;   // relativ geht bei file:// nicht
+        return API_URL; // gehostet: relativ oder absolut ok
+      }
+      const RESOLVED_API_URL = resolveApiUrl();
 
       const TZ = "Europe/Berlin";
       const START = "2025-10-02";
       const END = "2025-10-15";
-
       const STORAGE_KEY = "kalender-checks-2025-10-02_2025-10-15";
-      const API_URL = "/api/checks"; // im lokalen Test ggf. null setzen
 
       let clickLock = false;
-
       let checks = {};
       let remoteReady = false;
+      let poller = null;
 
       const $ = (s,r=document)=>r.querySelector(s);
       const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
@@ -182,47 +187,74 @@
       }
       function display(iso){const{y,m,d}=toParts(iso);return `${pad(d)}.${pad(m)}.${y}`;}
 
-      /* ✅ Nur HIER deklarieren (nicht nochmal unten!) */
-      const allDays = range(START, END);
-      let todayIso = formatDateInTZ(new Date(), TZ);
+      const allDays=range(START,END); let todayIso=formatDateInTZ(new Date(),TZ);
 
-      /* Theme */
+      /* Theme-State */
       let theme=localStorage.getItem('theme')||'dark';
       function applyTheme(){ document.body.classList.toggle('theme-light', theme==='light'); }
       applyTheme();
 
-      /* Daten laden (robust) */
+      /* ---------- Local State ---------- */
+      function readLocal(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}'); }catch{ return {}; } }
+      function writeLocal(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(checks)); }
+
+      /* ---------- Remote Load/Save + Polling ---------- */
       async function loadRemote(){
-        try {
-          if (location.protocol === 'file:' || !API_URL) {
-            try { checks = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch {}
-            return;
-          }
-          const r = await fetch(API_URL, { headers: { 'Accept': 'application/json' } });
+        try{
+          // 1) lokalen Stand sofort laden (optimistisches Rendern)
+          const local = readLocal(); checks = local || {};
+
+          // 2) wenn keine API erreichbar (file:// + relative URL), lokal bleiben
+          if (!RESOLVED_API_URL){ return; }
+
+          // 3) Server lesen
+          const r = await fetch(RESOLVED_API_URL, { headers:{'Accept':'application/json'}, cache:'no-store' });
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const data = await r.json();
           checks = data?.checks || {};
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(checks));
-        } catch (e) {
+          writeLocal();
+        } catch(e){
           console.warn('Remote nicht erreichbar – nutze lokale Kopie.', e);
-          try { checks = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch {}
+          const local = readLocal(); checks = local || {};
         } finally {
-          remoteReady=true;
+          remoteReady = true;
           render();
+          startPolling();
         }
       }
       loadRemote();
 
-      const save=debounce(async()=>{
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(checks));
+      const save = debounce(async ()=>{
+        writeLocal();
+        if (!RESOLVED_API_URL) return;
         try{
-          if (API_URL) {
-            await fetch(API_URL,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({checks})});
-          }
+          await fetch(RESOLVED_API_URL, {
+            method:'PUT',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ checks })
+          });
         }catch(e){ console.error('Remote save failed', e); }
-      },250);
+      }, 250);
 
-      /* Notebook */
+      function startPolling(interval=15000){
+        if (!RESOLVED_API_URL || poller) return;
+        poller = setInterval(async ()=>{
+          try{
+            const r = await fetch(RESOLVED_API_URL, { headers:{'Accept':'application/json'}, cache:'no-store' });
+            if (!r.ok) return;
+            const data = await r.json();
+            const incoming = data?.checks || {};
+            if (JSON.stringify(incoming) !== JSON.stringify(checks)){
+              checks = incoming;
+              writeLocal();
+              render();
+            }
+          }catch{}
+        }, interval);
+        window.addEventListener('focus', loadRemote);
+      }
+
+      /* ---------- Notebook (lokal) ---------- */
       const nbRoot = document.getElementById('nb-modal-root');
       const nbText = document.getElementById('nb-text');
       const nbPreview = document.getElementById('nb-preview');
@@ -271,120 +303,26 @@
       function attachNotebookButtons(){
         $$('.day').forEach(card=>{
           card.classList.add('nb-card-host');
-          const old = card.querySelector('.nb-book-btn');
-          if(old) old.remove();
-
+          const old = card.querySelector('.nb-book-btn'); if(old) old.remove();
           const day = card.dataset.day;
           const canUse = isReached(day);
           if(!canUse) return;
-
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'nb-book-btn';
           btn.title = 'Notiz öffnen';
           btn.textContent = '📖';
-
           btn.addEventListener('click', (e)=>{
             e.stopPropagation();
             const title = `Notiz – ${display(day)}`;
             const key = storageKeyFor(day);
             openModal(title, key);
           });
-
           card.appendChild(btn);
         });
       }
 
-      /* Render */
-      function render(){
-        if(!remoteReady){
-          $('#app').innerHTML='<div class="p-10 text-center text-slate-300">Lade Fortschritt…</div>';
-          return;
-        }
-
-        todayIso=formatDateInTZ(new Date(),TZ);
-        const lastCheckable=allDays.filter(d=>d<=todayIso).slice(-1)[0]??allDays[0];
-        const canCheckUntil=lastCheckable<END?lastCheckable:END;
-        const remainingToEnd=Math.max(0,daysBetween(todayIso,END));
-        const doneCount=allDays.filter(d=>checks[d]).length;
-        const openCount=allDays.length-doneCount;
-        const progress=Math.round((doneCount/allDays.length)*100);
-
-        $('#app').innerHTML=`
-          <header class="mb-6 flex items-center justify-between">
-            <div>
-              <h1 class="text-3xl md:text-4xl font-semibold tracking-tight">Zeitplan</h1>
-              <p class="text-slate-300 mt-1">02.10.2025 bis 15.10.2025</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <button id="theme" class="rounded-2xl px-3 py-2 bg-slate-800/60 hover:bg-slate-800 shadow-lg shadow-slate-900/40 transition" title="Theme wechseln">🌙/☀️</button>
-              <button id="reset" class="rounded-2xl px-4 py-2 bg-slate-800/60 hover:bg-slate-800 shadow-lg shadow-slate-900/40 transition">Zurücksetzen</button>
-            </div>
-          </header>
-
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            ${infoCard('Heute', display(todayIso), 'Europa Berlin')}
-            ${infoCard('Noch bis 15.10.', `${remainingToEnd} Tage`, 'inkl. heute gezählt')}
-            ${infoCard('Fortschritt', `${progress}%`, `${doneCount} geschafft · ${openCount} offen`)}
-          </div>
-
-          <div class="notice mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-400/10 p-4 flex items-center gap-3">
-            <div class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></div>
-            <p class="text-emerald-200">Du kannst bis einschließlich <span class="font-medium text-emerald-300">${display(canCheckUntil)}</span> abhaken.</p>
-          </div>
-
-          <div class="mb-6">
-            <div class="h-3 rounded-full progress-track bg-slate-800 overflow-hidden">
-              <div class="h-full bg-emerald-400 bar" style="width:${progress}%"></div>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            ${allDays.map(day=>dayCard(day,{disabled:day>todayIso,checked:!!checks[day],isLimit:day===canCheckUntil})).join('')}
-          </div>
-
-          <footer class="mt-10 text-slate-400 text-sm"><p>Hinweis: Fortschritt wird zentral gespeichert.</p></footer>
-        `;
-
-        $('#reset').addEventListener('click', ()=>{ 
-          if(confirm('Alles zurücksetzen?')){ checks={}; save(); render(); } 
-        });
-        $('#theme').addEventListener('click', ()=>{ 
-          theme = (theme==='light'?'dark':'light'); 
-          localStorage.setItem('theme',theme); 
-          applyTheme(); 
-        });
-
-        $$('.day').forEach(el=>{
-          el.addEventListener('click', ()=>{
-            const day=el.dataset.day; 
-            if(el.dataset.disabled==='true') return; 
-            if(clickLock) return;
-            const willCheck=!checks[day]; 
-            if(willCheck){checks[day]=true;} else {delete checks[day];}
-            save();
-            if(willCheck){ 
-              const s=document.createElement('div'); 
-              s.className='shimmer'; 
-              el.appendChild(s); 
-              const tick=el.querySelector('.tick'); 
-              if(tick){ 
-                tick.classList.add('tick-enter'); 
-                requestAnimationFrame(()=>tick.classList.add('tick-enter-active')); 
-              } 
-              clickLock=true; 
-              setTimeout(()=>{clickLock=false; render();},400); 
-            }
-            else { 
-              clickLock=true; 
-              setTimeout(()=>{clickLock=false; render();},200); 
-            }
-          });
-        });
-
-        attachNotebookButtons();
-      }
-
+      /* ---------- Render ---------- */
       function infoCard(title,value,sub){
         return `<div class="info-card rounded-2xl bg-slate-900/60 backdrop-blur border border-slate-800 p-4 shadow-xl">
           <div class="text-sm text-slate-400">${title}</div>
@@ -431,6 +369,90 @@
           <path d="M12.1 21.35L10.7 20.03C5.4 15.36 2 12.28 2 8.5 2 5.46 4.46 3 7.5 3c2.04 0 3.81 1.12 4.6 2.77C12.89 4.12 14.66 3 16.7 3 19.74 3 22.2 5.46 22.2 8.5c0 3.78-3.4 6.86-8.65 11.54l-1.45 1.31z"/></svg>`; 
       }
       function dot(){ return '<span class="block h-2 w-2 rounded-full opacity-60"></span>'; }
+
+      function render(){
+        if(!remoteReady){
+          $('#app').innerHTML='<div class="p-10 text-center text-slate-300">Lade Fortschritt…</div>';
+          return;
+        }
+
+        todayIso=formatDateInTZ(new Date(),TZ);
+        const lastCheckable=allDays.filter(d=>d<=todayIso).slice(-1)[0]??allDays[0];
+        const canCheckUntil=lastCheckable<END?lastCheckable:END;
+        const remainingToEnd=Math.max(0,daysBetween(todayIso,END));
+        const doneCount=allDays.filter(d=>checks[d]).length;
+        const openCount=allDays.length-doneCount;
+        const progress=Math.round((doneCount/allDays.length)*100);
+
+        const syncBadge = RESOLVED_API_URL
+          ? `<span class="ml-2 text-xs rounded-full px-2 py-1 border border-emerald-400/40 text-emerald-300">Sync aktiv</span>`
+          : `<span class="ml-2 text-xs rounded-full px-2 py-1 border border-yellow-400/40 text-yellow-300" title="Setze eine absolute API_URL, wenn du die Datei per file:// öffnest.">Nur lokal</span>`;
+
+        $('#app').innerHTML=`
+          <header class="mb-6 flex items-center justify-between">
+            <div class="flex items-center">
+              <div>
+                <h1 class="text-3xl md:text-4xl font-semibold tracking-tight">Zeitplan</h1>
+                <p class="text-slate-300 mt-1">02.10.2025 bis 15.10.2025</p>
+              </div>
+              ${syncBadge}
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="theme" class="rounded-2xl px-3 py-2 bg-slate-800/60 hover:bg-slate-800 shadow-lg shadow-slate-900/40 transition" title="Theme wechseln">🌙/☀️</button>
+              <button id="reset" class="rounded-2xl px-4 py-2 bg-slate-800/60 hover:bg-slate-800 shadow-lg shadow-slate-900/40 transition">Zurücksetzen</button>
+            </div>
+          </header>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            ${infoCard('Heute', display(todayIso), 'Europa Berlin')}
+            ${infoCard('Noch bis 15.10.', `${remainingToEnd} Tage`, 'inkl. heute gezählt')}
+            ${infoCard('Fortschritt', `${progress}%`, `${doneCount} geschafft · ${openCount} offen`)}
+          </div>
+
+          <div class="notice mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-400/10 p-4 flex items-center gap-3">
+            <div class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></div>
+            <p class="text-emerald-200">Du kannst bis einschließlich <span class="font-medium text-emerald-300">${display(canCheckUntil)}</span> abhaken.</p>
+          </div>
+
+          <div class="mb-6">
+            <div class="h-3 rounded-full progress-track bg-slate-800 overflow-hidden">
+              <div class="h-full bg-emerald-400 bar" style="width:${progress}%"></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            ${allDays.map(day=>dayCard(day,{disabled:day>todayIso,checked:!!checks[day],isLimit:day===canCheckUntil})).join('')}
+          </div>
+
+          <footer class="mt-10 text-slate-400 text-sm"><p>Hinweis: Fortschritt wird ${RESOLVED_API_URL?'zentral gespeichert':'nur lokal gespeichert'}.</p></footer>
+        `;
+
+        $('#reset').addEventListener('click', ()=>{ 
+          if(confirm('Alles zurücksetzen?')){ checks={}; save(); render(); } 
+        });
+        $('#theme').addEventListener('click', ()=>{ theme = (theme==='light'?'dark':'light'); localStorage.setItem('theme',theme); applyTheme(); });
+
+        $$('.day').forEach(el=>{
+          el.addEventListener('click', ()=>{
+            const day=el.dataset.day; 
+            if(el.dataset.disabled==='true') return; 
+            if(clickLock) return;
+            const willCheck=!checks[day]; 
+            if(willCheck){checks[day]=true;} else {delete checks[day];}
+            save();
+            if(willCheck){ 
+              const s=document.createElement('div'); s.className='shimmer'; el.appendChild(s); 
+              const tick=el.querySelector('.tick'); 
+              if(tick){ tick.classList.add('tick-enter'); requestAnimationFrame(()=>tick.classList.add('tick-enter-active')); } 
+              clickLock=true; setTimeout(()=>{clickLock=false; render();},400); 
+            } else { 
+              clickLock=true; setTimeout(()=>{clickLock=false; render();},200); 
+            }
+          });
+        });
+
+        attachNotebookButtons();
+      }
 
       render();
       setInterval(()=>{ const t=formatDateInTZ(new Date(),TZ); if(t!==todayIso){ render(); } },60000);
