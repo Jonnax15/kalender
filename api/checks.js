@@ -1,7 +1,7 @@
 // api/checks.js — Serverless API auf Vercel
 export default async function handler(req, res) {
   const { GITHUB_TOKEN, GITHUB_REPO, GITHUB_FILE } = process.env;
-  const BRANCH = "main"; // ggf. anpassen, wenn dein Default-Branch anders heißt
+  const BRANCH = "main"; // ggf. anpassen
   const base = `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_FILE}`;
 
   const gh = (url, opts = {}) =>
@@ -17,7 +17,7 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     const r = await gh(`${base}?ref=${BRANCH}`);
-    if (r.status === 404) return res.status(200).json({ checks: {} });
+    if (r.status === 404) return res.status(200).json({ checks: {}, notes: {} });
     const data = await r.json();
     const decoded = Buffer.from(data.content, "base64").toString("utf8");
     return res.status(200).json(JSON.parse(decoded));
@@ -33,7 +33,7 @@ export default async function handler(req, res) {
 
   if (req.method === "PUT") {
     const raw = await readBody(req);
-    const { checks = {} } = JSON.parse(raw || "{}");
+    const { checks = {}, notes = {} } = JSON.parse(raw || "{}");
 
     let sha;
     const meta = await gh(`${base}?ref=${BRANCH}`);
@@ -42,11 +42,14 @@ export default async function handler(req, res) {
       sha = m.sha;
     }
 
-    const content = Buffer.from(JSON.stringify({ checks }, null, 2)).toString("base64");
-    const commit = await gh(base, {
+    const content = Buffer.from(
+      JSON.stringify({ checks, notes }, null, 2)
+    ).toString("base64");
+
+    await gh(base, {
       method: "PUT",
       body: JSON.stringify({
-        message: "Update checks.json",
+        message: "Update checks+notes.json",
         content,
         branch: BRANCH,
         sha,
