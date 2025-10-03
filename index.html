@@ -56,9 +56,28 @@
       .nb-card-host:hover > .nb-book-btn { opacity:1; transform:translateY(0); }
       .nb-book-btn:hover { background: rgba(0,0,0,.75); }
 
-      .nb-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:1000; }
+      /* === Modal: Scroll-fähig machen === */
+      .nb-modal-backdrop {
+        position:fixed; inset:0; background:rgba(0,0,0,.5);
+        display:none; align-items:center; justify-content:center; z-index:1000;
+        overflow:auto;               /* falls Modal höher als Viewport ist */
+        padding:16px;                /* Abstand zum Rand für Scrollfälle */
+        overscroll-behavior: contain;/* verhindert Scroll-„Durchgriff“ */
+      }
       .nb-modal-backdrop.is-open { display:flex; }
-      .nb-modal { width:min(680px,92vw); background:var(--nb-surface,#111); color:var(--nb-text,#fff); border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.45); overflow:hidden; border:1px solid rgba(255,255,255,.08); }
+
+      .nb-modal {
+        width:min(680px,92vw);
+        max-height:92vh;             /* begrenzt Höhe */
+        background:var(--nb-surface,#111);
+        color:var(--nb-text,#fff);
+        border-radius:16px;
+        box-shadow:0 10px 30px rgba(0,0,0,.45);
+        border:1px solid rgba(255,255,255,.08);
+        overflow:hidden;             /* runde Ecken bleiben sauber */
+        display:grid;                /* Header fix, Body scrollt */
+        grid-template-rows:auto 1fr; /* oben Header, unten Body */
+      }
       .nb-modal-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.08); }
       .nb-modal-title { font-weight:700; font-size:16px; }
       .nb-modal-actions { display:flex; gap:8px; }
@@ -67,7 +86,14 @@
       .nb-btn:active { transform: translateY(1px) scale(.99); }
       .nb-btn.primary { background:#4f46e5; border-color:#4f46e5; color:#fff; }
       .nb-btn.danger { background:#dc2626; border-color:#dc2626; color:#fff; }
-      .nb-modal-body { display:grid; gap:10px; grid-template-rows:auto 1fr; padding:14px 16px; }
+
+      .nb-modal-body {
+        display:grid; gap:10px; grid-template-rows:auto 1fr;
+        padding:14px 16px;
+        overflow:auto;               /* ← hier scrollt der Inhalt */
+        min-height:0;                /* wichtig für korrektes Scrollen im Grid */
+        -webkit-overflow-scrolling: touch;
+      }
       .nb-form-row { display:grid; gap:10px; grid-template-columns:1fr; }
       .nb-textarea { width:100%; min-height:160px; border-radius:12px; border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.04); color:inherit; padding:10px 12px; resize:vertical; }
       .nb-helper { font-size:12px; opacity:.8; }
@@ -120,7 +146,6 @@
       const START = "2025-10-02";
       const END = "2025-10-15";
 
-      /* Setze API_URL auf null, wenn du lokal ohne Backend testest */
       const STORAGE_KEY = "kalender-checks-2025-10-02_2025-10-15";
       const API_URL = null; // z. B. "/api/checks" im Betrieb, null im lokalen Test
 
