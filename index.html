@@ -56,26 +56,10 @@
       .nb-card-host:hover > .nb-book-btn { opacity:1; transform:translateY(0); }
       .nb-book-btn:hover { background: rgba(0,0,0,.75); }
 
-      /* === Modal: Scroll-fähig machen === */
-      .nb-modal-backdrop {
-        position:fixed; inset:0; background:rgba(0,0,0,.5);
-        display:none; align-items:center; justify-content:center; z-index:1000;
-        overflow:auto; padding:16px; overscroll-behavior: contain;
-      }
+      /* Modal: Scroll-fähig */
+      .nb-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:1000; overflow:auto; padding:16px; overscroll-behavior: contain; }
       .nb-modal-backdrop.is-open { display:flex; }
-
-      .nb-modal {
-        width:min(680px,92vw);
-        max-height:92vh;
-        background:var(--nb-surface,#111);
-        color:var(--nb-text,#fff);
-        border-radius:16px;
-        box-shadow:0 10px 30px rgba(0,0,0,.45);
-        border:1px solid rgba(255,255,255,.08);
-        overflow:hidden;
-        display:grid;
-        grid-template-rows:auto 1fr;
-      }
+      .nb-modal { width:min(680px,92vw); max-height:92vh; background:var(--nb-surface,#111); color:var(--nb-text,#fff); border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.45); border:1px solid rgba(255,255,255,.08); overflow:hidden; display:grid; grid-template-rows:auto 1fr; }
       .nb-modal-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.08); }
       .nb-modal-title { font-weight:700; font-size:16px; }
       .nb-modal-actions { display:flex; gap:8px; }
@@ -84,14 +68,7 @@
       .nb-btn:active { transform: translateY(1px) scale(.99); }
       .nb-btn.primary { background:#4f46e5; border-color:#4f46e5; color:#fff; }
       .nb-btn.danger { background:#dc2626; border-color:#dc2626; color:#fff; }
-
-      .nb-modal-body {
-        display:grid; gap:10px; grid-template-rows:auto 1fr;
-        padding:14px 16px;
-        overflow:auto;
-        min-height:0;
-        -webkit-overflow-scrolling: touch;
-      }
+      .nb-modal-body { display:grid; gap:10px; grid-template-rows:auto 1fr; padding:14px 16px; overflow:auto; min-height:0; -webkit-overflow-scrolling: touch; }
       .nb-form-row { display:grid; gap:10px; grid-template-columns:1fr; }
       .nb-textarea { width:100%; min-height:160px; border-radius:12px; border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.04); color:inherit; padding:10px 12px; resize:vertical; }
       .nb-helper { font-size:12px; opacity:.8; }
@@ -132,30 +109,26 @@
     </div>
 
     <script type="module">
-      /* ---------- Sync-Konfiguration ---------- */
-      // WICHTIG:
-      // - Wenn du die Datei lokal (file://) öffnest, MUSS API_URL ABSOLUT sein (https://…).
-      // - Bei Hosting unter derselben Domain kann API_URL relativ sein (z. B. "/api/checks").
-      const API_URL = "/api/checks"; // z.B. "https://deine-domain.tld/api/checks"
-
-      function resolveApiUrl() {
-        if (!API_URL) return null;
-        const isFile = location.protocol === 'file:';
-        const isAbsolute = /^https?:\/\//i.test(API_URL);
-        if (isFile) return isAbsolute ? API_URL : null;   // relativ geht bei file:// nicht
-        return API_URL; // gehostet: relativ oder absolut ok
-      }
-      const RESOLVED_API_URL = resolveApiUrl();
+      /* Fehler Overlay (optional) */
+      window.addEventListener('error', (e) => {
+        const div = document.createElement('div');
+        div.style.cssText = 'position:fixed;bottom:8px;left:8px;right:8px;background:#111;color:#fff;border:1px solid #ef4444;padding:10px;border-radius:12px;z-index:9999;font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;';
+        div.textContent = 'JS-Fehler: ' + (e?.error?.message || e.message || 'Unbekannt');
+        document.body.appendChild(div);
+      });
 
       const TZ = "Europe/Berlin";
       const START = "2025-10-02";
       const END = "2025-10-15";
-      const STORAGE_KEY = "kalender-checks-2025-10-02_2025-10-15";
+
+      const STORAGE_KEY = "kalender-data-2025-10-02_2025-10-15"; // jetzt: {checks, notes}
+      const API_URL = "/api/checks"; // auf derselben Vercel-Domain
 
       let clickLock = false;
+
       let checks = {};
+      let notes  = {};  // ⬅️ NEU
       let remoteReady = false;
-      let poller = null;
 
       const $ = (s,r=document)=>r.querySelector(s);
       const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
@@ -189,72 +162,57 @@
 
       const allDays=range(START,END); let todayIso=formatDateInTZ(new Date(),TZ);
 
-      /* Theme-State */
+      /* Theme */
       let theme=localStorage.getItem('theme')||'dark';
       function applyTheme(){ document.body.classList.toggle('theme-light', theme==='light'); }
       applyTheme();
 
-      /* ---------- Local State ---------- */
-      function readLocal(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}'); }catch{ return {}; } }
-      function writeLocal(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(checks)); }
+      /* ---- Local Fallback helpers (neu: checks+notes zusammen) ---- */
+      function readLocal(){
+        try{
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if(!raw) return { checks:{}, notes:{} };
+          const parsed = JSON.parse(raw);
+          // Falls noch alter Stand (nur checks-Objekt)
+          if (parsed && !parsed.checks && !parsed.notes) return { checks: parsed || {}, notes:{} };
+          return { checks: parsed.checks || {}, notes: parsed.notes || {} };
+        }catch{ return { checks:{}, notes:{} }; }
+      }
+      function writeLocal(){ localStorage.setItem(STORAGE_KEY, JSON.stringify({ checks, notes })); }
 
-      /* ---------- Remote Load/Save + Polling ---------- */
+      /* ---- Laden & Speichern (mit notes) ---- */
       async function loadRemote(){
         try{
-          // 1) lokalen Stand sofort laden (optimistisches Rendern)
-          const local = readLocal(); checks = local || {};
-
-          // 2) wenn keine API erreichbar (file:// + relative URL), lokal bleiben
-          if (!RESOLVED_API_URL){ return; }
-
-          // 3) Server lesen
-          const r = await fetch(RESOLVED_API_URL, { headers:{'Accept':'application/json'}, cache:'no-store' });
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const r = await fetch(API_URL, { headers: { 'Accept':'application/json' }, cache:'no-store' });
+          if(!r.ok) throw new Error(`HTTP ${r.status}`);
           const data = await r.json();
-          checks = data?.checks || {};
+          checks = data.checks || {};
+          notes  = data.notes  || {};
           writeLocal();
-        } catch(e){
-          console.warn('Remote nicht erreichbar – nutze lokale Kopie.', e);
-          const local = readLocal(); checks = local || {};
-        } finally {
+        }catch(e){
+          console.warn('API nicht erreichbar – nutze lokale Kopie.', e);
+          const local = readLocal();
+          checks = local.checks;
+          notes  = local.notes;
+        }finally{
           remoteReady = true;
           render();
-          startPolling();
         }
       }
       loadRemote();
 
       const save = debounce(async ()=>{
         writeLocal();
-        if (!RESOLVED_API_URL) return;
         try{
-          await fetch(RESOLVED_API_URL, {
+          await fetch(API_URL, {
             method:'PUT',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ checks })
+            headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({ checks, notes }) // ⬅️ NEU
           });
         }catch(e){ console.error('Remote save failed', e); }
-      }, 250);
+      }, 200);
 
-      function startPolling(interval=15000){
-        if (!RESOLVED_API_URL || poller) return;
-        poller = setInterval(async ()=>{
-          try{
-            const r = await fetch(RESOLVED_API_URL, { headers:{'Accept':'application/json'}, cache:'no-store' });
-            if (!r.ok) return;
-            const data = await r.json();
-            const incoming = data?.checks || {};
-            if (JSON.stringify(incoming) !== JSON.stringify(checks)){
-              checks = incoming;
-              writeLocal();
-              render();
-            }
-          }catch{}
-        }, interval);
-        window.addEventListener('focus', loadRemote);
-      }
-
-      /* ---------- Notebook (lokal) ---------- */
+      /* ---- Notebook / Modal ---- */
       const nbRoot = document.getElementById('nb-modal-root');
       const nbText = document.getElementById('nb-text');
       const nbPreview = document.getElementById('nb-preview');
@@ -262,7 +220,7 @@
       const nbBtnCancel = document.getElementById('nb-cancel');
       const nbBtnClear = document.getElementById('nb-clear');
       const nbTitle = document.getElementById('nb-modal-title');
-      let nbCurrentKey = null;
+      let nbCurrentDay = null; // ⬅️ statt localStorage-Key
 
       function mdLite(str){
         if(!str) return "";
@@ -275,11 +233,10 @@
         out = out.replace(/\n/g, '<br>');
         return out;
       }
-      function storageKeyFor(dateStr){ return `note::${dateStr}`; }
-      function openModal(title, key){
-        nbCurrentKey = key;
-        nbTitle.textContent = title || 'Notiz';
-        const existing = localStorage.getItem(key) || '';
+      function openModal(day){
+        nbCurrentDay = day;
+        nbTitle.textContent = `Notiz – ${display(day)}`;
+        const existing = notes[day] || '';
         nbText.value = existing;
         nbPreview.innerHTML = mdLite(existing);
         nbRoot.classList.add('is-open');
@@ -289,12 +246,26 @@
       function closeModal(){
         nbRoot.classList.remove('is-open');
         nbRoot.setAttribute('aria-hidden','true');
-        nbCurrentKey = null;
+        nbCurrentDay = null;
       }
       nbText.addEventListener('input', ()=>{ nbPreview.innerHTML = mdLite(nbText.value); });
-      nbBtnSave.addEventListener('click', ()=>{ if(!nbCurrentKey) return; localStorage.setItem(nbCurrentKey, nbText.value.trim()); closeModal(); });
+      nbBtnSave.addEventListener('click', ()=>{
+        if(!nbCurrentDay) return;
+        const val = nbText.value.trim();
+        if (val) notes[nbCurrentDay] = val; else delete notes[nbCurrentDay];
+        save();
+        closeModal();
+      });
       nbBtnCancel.addEventListener('click', closeModal);
-      nbBtnClear.addEventListener('click', ()=>{ if(!nbCurrentKey) return; if(confirm('Notiz wirklich löschen?')){ localStorage.removeItem(nbCurrentKey); nbText.value=''; nbPreview.innerHTML=''; closeModal(); } });
+      nbBtnClear.addEventListener('click', ()=>{
+        if(!nbCurrentDay) return;
+        if(confirm('Notiz wirklich löschen?')){
+          delete notes[nbCurrentDay];
+          save();
+          nbText.value=''; nbPreview.innerHTML='';
+          closeModal();
+        }
+      });
       nbRoot.addEventListener('click', (e)=>{ if(e.target===nbRoot) closeModal(); });
       document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && nbRoot.classList.contains('is-open')) closeModal(); });
 
@@ -303,26 +274,28 @@
       function attachNotebookButtons(){
         $$('.day').forEach(card=>{
           card.classList.add('nb-card-host');
-          const old = card.querySelector('.nb-book-btn'); if(old) old.remove();
+          const old = card.querySelector('.nb-book-btn');
+          if(old) old.remove();
+
           const day = card.dataset.day;
-          const canUse = isReached(day);
-          if(!canUse) return;
+          if(!isReached(day)) return; // Buch nur bei erreichten Tagen
+
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'nb-book-btn';
           btn.title = 'Notiz öffnen';
           btn.textContent = '📖';
+
           btn.addEventListener('click', (e)=>{
             e.stopPropagation();
-            const title = `Notiz – ${display(day)}`;
-            const key = storageKeyFor(day);
-            openModal(title, key);
+            openModal(day);
           });
+
           card.appendChild(btn);
         });
       }
 
-      /* ---------- Render ---------- */
+      /* ---- Render ---- */
       function infoCard(title,value,sub){
         return `<div class="info-card rounded-2xl bg-slate-900/60 backdrop-blur border border-slate-800 p-4 shadow-xl">
           <div class="text-sm text-slate-400">${title}</div>
@@ -376,7 +349,7 @@
           return;
         }
 
-        todayIso=formatDateInTZ(new Date(),TZ);
+        todayIso = formatDateInTZ(new Date(),TZ);
         const lastCheckable=allDays.filter(d=>d<=todayIso).slice(-1)[0]??allDays[0];
         const canCheckUntil=lastCheckable<END?lastCheckable:END;
         const remainingToEnd=Math.max(0,daysBetween(todayIso,END));
@@ -384,18 +357,11 @@
         const openCount=allDays.length-doneCount;
         const progress=Math.round((doneCount/allDays.length)*100);
 
-        const syncBadge = RESOLVED_API_URL
-          ? `<span class="ml-2 text-xs rounded-full px-2 py-1 border border-emerald-400/40 text-emerald-300">Sync aktiv</span>`
-          : `<span class="ml-2 text-xs rounded-full px-2 py-1 border border-yellow-400/40 text-yellow-300" title="Setze eine absolute API_URL, wenn du die Datei per file:// öffnest.">Nur lokal</span>`;
-
         $('#app').innerHTML=`
           <header class="mb-6 flex items-center justify-between">
-            <div class="flex items-center">
-              <div>
-                <h1 class="text-3xl md:text-4xl font-semibold tracking-tight">Zeitplan</h1>
-                <p class="text-slate-300 mt-1">02.10.2025 bis 15.10.2025</p>
-              </div>
-              ${syncBadge}
+            <div>
+              <h1 class="text-3xl md:text-4xl font-semibold tracking-tight">Zeitplan</h1>
+              <p class="text-slate-300 mt-1">02.10.2025 bis 15.10.2025</p>
             </div>
             <div class="flex items-center gap-2">
               <button id="theme" class="rounded-2xl px-3 py-2 bg-slate-800/60 hover:bg-slate-800 shadow-lg shadow-slate-900/40 transition" title="Theme wechseln">🌙/☀️</button>
@@ -424,13 +390,17 @@
             ${allDays.map(day=>dayCard(day,{disabled:day>todayIso,checked:!!checks[day],isLimit:day===canCheckUntil})).join('')}
           </div>
 
-          <footer class="mt-10 text-slate-400 text-sm"><p>Hinweis: Fortschritt wird ${RESOLVED_API_URL?'zentral gespeichert':'nur lokal gespeichert'}.</p></footer>
+          <footer class="mt-10 text-slate-400 text-sm"><p>Hinweis: Fortschritt & Notizen werden zentral gespeichert.</p></footer>
         `;
 
         $('#reset').addEventListener('click', ()=>{ 
-          if(confirm('Alles zurücksetzen?')){ checks={}; save(); render(); } 
+          if(confirm('Alles zurücksetzen?')){ checks={}; notes={}; save(); render(); } 
         });
-        $('#theme').addEventListener('click', ()=>{ theme = (theme==='light'?'dark':'light'); localStorage.setItem('theme',theme); applyTheme(); });
+        $('#theme').addEventListener('click', ()=>{ 
+          theme = (theme==='light'?'dark':'light'); 
+          localStorage.setItem('theme',theme); 
+          applyTheme(); 
+        });
 
         $$('.day').forEach(el=>{
           el.addEventListener('click', ()=>{
@@ -441,12 +411,20 @@
             if(willCheck){checks[day]=true;} else {delete checks[day];}
             save();
             if(willCheck){ 
-              const s=document.createElement('div'); s.className='shimmer'; el.appendChild(s); 
+              const s=document.createElement('div'); 
+              s.className='shimmer'; 
+              el.appendChild(s); 
               const tick=el.querySelector('.tick'); 
-              if(tick){ tick.classList.add('tick-enter'); requestAnimationFrame(()=>tick.classList.add('tick-enter-active')); } 
-              clickLock=true; setTimeout(()=>{clickLock=false; render();},400); 
-            } else { 
-              clickLock=true; setTimeout(()=>{clickLock=false; render();},200); 
+              if(tick){ 
+                tick.classList.add('tick-enter'); 
+                requestAnimationFrame(()=>tick.classList.add('tick-enter-active')); 
+              } 
+              clickLock=true; 
+              setTimeout(()=>{clickLock=false; render();},400); 
+            }
+            else { 
+              clickLock=true; 
+              setTimeout(()=>{clickLock=false; render();},200); 
             }
           });
         });
