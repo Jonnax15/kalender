@@ -18,27 +18,22 @@
       .heart-bg span { font-size:3rem; line-height:1; color:rgba(255,192,203,0.12); animation:pulse 3s infinite ease-in-out; }
       @keyframes pulse { 0%,100%{transform:scale(1);opacity:.12} 50%{transform:scale(1.15);opacity:.2} }
 
-      /* Madeira Holiday Look */
+      /* Madeira Holiday Look (Dark) */
       .holiday { background:url('https://i.imgur.com/BwsS4O1.jpeg') center/cover no-repeat; border-color:rgba(255,217,102,.7)!important; position:relative; overflow:hidden; color:white; }
       .holiday::before { content:""; position:absolute; inset:0; background:rgba(0,0,0,.55); }
       .holiday>*{ position:relative; z-index:1; }
 
-      /* Theme Light */
+      /* Theme Light – Basis */
       body.theme-light { color:#0f172a; }
       body.theme-light.bg-gradient { background:linear-gradient(to bottom,#ffffff,#f8fafc,#eef2f7); }
       body.theme-light .info-card{ background:rgba(255,255,255,0.9)!important; border-color:#e2e8f0!important; color:#0f172a; }
-      body.theme-light .notice{ background:rgba(16,185,129,0.10)!important; border-color:rgba(16,185,129,0.35)!important; }
       body.theme-light .progress-track{ background:#e2e8f0!important; }
       body.theme-light .bar{ background:#10b981!important; }
-      body.theme-light .day{ background:rgba(255,255,255,0.9)!important; border-color:#e2e8f0!important; color:#0f172a; }
+      body.theme-light .day{ border-color:#e2e8f0!important; color:#0f172a; }
       body.theme-light .day:hover{ box-shadow:0 10px 24px rgba(15,23,42,0.08); }
       body.theme-light .day .date-label{ color:#64748b!important; }
       body.theme-light .day .date-value{ color:#0f172a!important; }
-      body.theme-light .holiday{ color:#1a1a1a; border-color:rgba(251,191,36,.7)!important; background:url('https://i.imgur.com/BwsS4O1.jpeg') center/cover no-repeat; box-shadow:0 12px 30px rgba(251,191,36,.25); }
-      body.theme-light .holiday::before{ background:rgba(255,255,200,.35); }
-      body.theme-light .holiday .date-label{ color:#b45309!important; }
-      body.theme-light .holiday .date-value{ color:#1f2937!important; }
-      body.theme-light .holiday .mt-3{ color:#f59e0b!important; }
+      /* Light Mode: Hearts */
       body.theme-light .hearts{ background:rgba(251,207,232,.9)!important; border-color:#f472b6!important; }
 
       /* Seitenverlauf (Dark) */
@@ -74,11 +69,40 @@
       .nb-helper { font-size:12px; opacity:.8; }
       .nb-preview { border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); border-radius:12px; padding:12px; min-height:100px; }
 
+      /* Light Theme für Modal */
       body.theme-light .nb-modal { --nb-surface:#fff; --nb-text:#111; border:1px solid rgba(0,0,0,.08); }
       body.theme-light .nb-btn { border-color:rgba(0,0,0,.12); background:rgba(0,0,0,.04); }
       body.theme-light .nb-btn:hover { background:rgba(0,0,0,.08); }
       body.theme-light .nb-textarea { border-color:rgba(0,0,0,.14); background:rgba(0,0,0,.03); }
       body.theme-light .nb-preview { border-color:rgba(0,0,0,.10); background:rgba(0,0,0,.02); }
+
+      /* ===== Light-Mode Tweaks (deutliche Notice + Holiday-Bild bleibt sichtbar) ===== */
+      body.theme-light .notice{
+        background:#d1fae5 !important;   /* emerald-100 */
+        border-color:#10b981 !important;  /* emerald-500 */
+        color:#065f46 !important;         /* emerald-900 */
+      }
+      body.theme-light .day:not(.holiday):not(.hearts){
+        background:rgba(255,255,255,0.95) !important;
+        border-color:#e5e7eb !important;
+        color:#0f172a;
+      }
+      body.theme-light .day:not(.holiday):not(.hearts):hover{
+        box-shadow:0 10px 24px rgba(15,23,42,0.10);
+      }
+      body.theme-light .day.holiday{
+        background:url('https://i.imgur.com/BwsS4O1.jpeg') center/cover no-repeat !important;
+        background-color:transparent !important;
+        border-color:rgba(251,191,36,.70) !important;
+        color:#1a1a1a;
+        box-shadow:0 12px 30px rgba(251,191,36,.25);
+      }
+      body.theme-light .day.holiday::before{
+        content:""; position:absolute; inset:0; background:rgba(255,255,200,.35);
+      }
+      body.theme-light .day.holiday .date-label{ color:#b45309!important; }
+      body.theme-light .day.holiday .date-value{ color:#1f2937!important; }
+      body.theme-light .day.holiday .mt-3{ color:#f59e0b!important; }
     </style>
   </head>
   <body class="min-h-screen w-full bg-gradient text-slate-100 p-6">
@@ -109,7 +133,7 @@
     </div>
 
     <script type="module">
-      /* Fehler Overlay (optional) */
+      /* (optional) kleines Fehler-Overlay */
       window.addEventListener('error', (e) => {
         const div = document.createElement('div');
         div.style.cssText = 'position:fixed;bottom:8px;left:8px;right:8px;background:#111;color:#fff;border:1px solid #ef4444;padding:10px;border-radius:12px;z-index:9999;font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;';
@@ -121,13 +145,14 @@
       const START = "2025-10-02";
       const END = "2025-10-15";
 
-      const STORAGE_KEY = "kalender-data-2025-10-02_2025-10-15"; // jetzt: {checks, notes}
-      const API_URL = "/api/checks"; // auf derselben Vercel-Domain
+      /* zentrale API (bei gleicher Vercel-Domain so lassen) */
+      const API_URL = "/api/checks";
+      /* lokales Fallback speichert jetzt {checks, notes} zusammen */
+      const STORAGE_KEY = "kalender-data-2025-10-02_2025-10-15";
 
       let clickLock = false;
-
       let checks = {};
-      let notes  = {};  // ⬅️ NEU
+      let notes  = {};
       let remoteReady = false;
 
       const $ = (s,r=document)=>r.querySelector(s);
@@ -142,22 +167,8 @@
       }
       function toParts(iso){const[y,m,d]=iso.split("-").map(Number);return{y,m,d};}
       function makeDate(y,m,d){return new Date(Date.UTC(y,m-1,d));}
-      function daysBetween(a,b){
-        const ap = toParts(a), bp = toParts(b);
-        const da = makeDate(ap.y, ap.m, ap.d);
-        const db = makeDate(bp.y, bp.m, bp.d);
-        return Math.round((db - da) / (1000*60*60*24));
-      }
-      function range(start,end){
-        const s = toParts(start), total = daysBetween(start,end)+1;
-        const out = [];
-        for(let i=0;i<total;i++){
-          const d = makeDate(s.y,s.m,s.d+i);
-          const iso = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
-          out.push(iso);
-        }
-        return out;
-      }
+      function daysBetween(a,b){const ap=toParts(a),bp=toParts(b);return Math.round((makeDate(bp.y,bp.m,bp.d)-makeDate(ap.y,ap.m,ap.d))/(1000*60*60*24));}
+      function range(start,end){const s=toParts(start),total=daysBetween(start,end)+1,out=[];for(let i=0;i<total;i++){const d=makeDate(s.y,s.m,s.d+i);out.push(`${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`);}return out;}
       function display(iso){const{y,m,d}=toParts(iso);return `${pad(d)}.${pad(m)}.${y}`;}
 
       const allDays=range(START,END); let todayIso=formatDateInTZ(new Date(),TZ);
@@ -167,20 +178,19 @@
       function applyTheme(){ document.body.classList.toggle('theme-light', theme==='light'); }
       applyTheme();
 
-      /* ---- Local Fallback helpers (neu: checks+notes zusammen) ---- */
+      /* ----- Local helpers (checks+notes zusammen) ----- */
       function readLocal(){
         try{
           const raw = localStorage.getItem(STORAGE_KEY);
           if(!raw) return { checks:{}, notes:{} };
           const parsed = JSON.parse(raw);
-          // Falls noch alter Stand (nur checks-Objekt)
-          if (parsed && !parsed.checks && !parsed.notes) return { checks: parsed || {}, notes:{} };
+          if (parsed && !parsed.checks && !parsed.notes) return { checks: parsed || {}, notes:{} }; // legacy
           return { checks: parsed.checks || {}, notes: parsed.notes || {} };
         }catch{ return { checks:{}, notes:{} }; }
       }
       function writeLocal(){ localStorage.setItem(STORAGE_KEY, JSON.stringify({ checks, notes })); }
 
-      /* ---- Laden & Speichern (mit notes) ---- */
+      /* ----- Laden/Speichern inkl. notes ----- */
       async function loadRemote(){
         try{
           const r = await fetch(API_URL, { headers: { 'Accept':'application/json' }, cache:'no-store' });
@@ -207,12 +217,12 @@
           await fetch(API_URL, {
             method:'PUT',
             headers:{ 'Content-Type':'application/json' },
-            body: JSON.stringify({ checks, notes }) // ⬅️ NEU
+            body: JSON.stringify({ checks, notes })
           });
         }catch(e){ console.error('Remote save failed', e); }
       }, 200);
 
-      /* ---- Notebook / Modal ---- */
+      /* Notebook / Modal */
       const nbRoot = document.getElementById('nb-modal-root');
       const nbText = document.getElementById('nb-text');
       const nbPreview = document.getElementById('nb-preview');
@@ -220,7 +230,7 @@
       const nbBtnCancel = document.getElementById('nb-cancel');
       const nbBtnClear = document.getElementById('nb-clear');
       const nbTitle = document.getElementById('nb-modal-title');
-      let nbCurrentDay = null; // ⬅️ statt localStorage-Key
+      let nbCurrentDay = null;
 
       function mdLite(str){
         if(!str) return "";
@@ -253,8 +263,7 @@
         if(!nbCurrentDay) return;
         const val = nbText.value.trim();
         if (val) notes[nbCurrentDay] = val; else delete notes[nbCurrentDay];
-        save();
-        closeModal();
+        save(); closeModal();
       });
       nbBtnCancel.addEventListener('click', closeModal);
       nbBtnClear.addEventListener('click', ()=>{
@@ -285,17 +294,12 @@
           btn.className = 'nb-book-btn';
           btn.title = 'Notiz öffnen';
           btn.textContent = '📖';
-
-          btn.addEventListener('click', (e)=>{
-            e.stopPropagation();
-            openModal(day);
-          });
-
+          btn.addEventListener('click', (e)=>{ e.stopPropagation(); openModal(day); });
           card.appendChild(btn);
         });
       }
 
-      /* ---- Render ---- */
+      /* Render */
       function infoCard(title,value,sub){
         return `<div class="info-card rounded-2xl bg-slate-900/60 backdrop-blur border border-slate-800 p-4 shadow-xl">
           <div class="text-sm text-slate-400">${title}</div>
@@ -375,6 +379,7 @@
             ${infoCard('Fortschritt', `${progress}%`, `${doneCount} geschafft · ${openCount} offen`)}
           </div>
 
+          <!-- Notice wieder grün (Dark Mode) -->
           <div class="notice mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-400/10 p-4 flex items-center gap-3">
             <div class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></div>
             <p class="text-emerald-200">Du kannst bis einschließlich <span class="font-medium text-emerald-300">${display(canCheckUntil)}</span> abhaken.</p>
@@ -415,16 +420,10 @@
               s.className='shimmer'; 
               el.appendChild(s); 
               const tick=el.querySelector('.tick'); 
-              if(tick){ 
-                tick.classList.add('tick-enter'); 
-                requestAnimationFrame(()=>tick.classList.add('tick-enter-active')); 
-              } 
-              clickLock=true; 
-              setTimeout(()=>{clickLock=false; render();},400); 
-            }
-            else { 
-              clickLock=true; 
-              setTimeout(()=>{clickLock=false; render();},200); 
+              if(tick){ tick.classList.add('tick-enter'); requestAnimationFrame(()=>tick.classList.add('tick-enter-active')); } 
+              clickLock=true; setTimeout(()=>{clickLock=false; render();},400); 
+            } else { 
+              clickLock=true; setTimeout(()=>{clickLock=false; render();},200); 
             }
           });
         });
