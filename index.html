@@ -138,7 +138,20 @@
     </div>
 
     <script type="module">
-      const TZ = "Europe/Berlin";
+      /* ====== Zeitzone: Bonus-Wechselfunktion ====== */
+      const TZ_LABELS = {
+        "Europe/Berlin": "Berlin",
+        "Atlantic/Madeira": "Madeira",
+        "Asia/Tokyo": "Tokyo",
+        "America/New_York": "New York"
+      };
+      let TZ = localStorage.getItem("tz") || "Atlantic/Madeira";
+      function setTZ(tz){
+        TZ = tz;
+        localStorage.setItem("tz", tz);
+        render();
+      }
+
       const START = "2025-10-02";
       const END = "2025-10-15";
 
@@ -229,27 +242,26 @@
       const nbTitle = document.getElementById('nb-modal-title');
       let nbCurrentDay = null;
 
-     function mdLite(str){
-       if(!str) return "";
-       const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-      let out = esc(str);
+      function mdLite(str){
+        if(!str) return "";
+        const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+        let out = esc(str);
 
-  // zuerst: Unterstreichen & Durchstreichen
-  out = out.replace(/__([^_]+?)__/g, '<u>$1</u>');      // __Text__  -> underline
-  out = out.replace(/~~([^~]+?)~~/g, '<del>$1</del>');  // ~~Text~~  -> strike
+        // zuerst: Unterstreichen & Durchstreichen
+        out = out.replace(/__([^_]+?)__/g, '<u>$1</u>');      // __Text__  -> underline
+        out = out.replace(/~~([^~]+?)~~/g, '<del>$1</del>');  // ~~Text~~  -> strike
 
-  // dann: Fett
-  out = out.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
+        // dann: Fett
+        out = out.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
 
-  // zuletzt: Kursiv
-  out = out.replace(/(^|[^*])\*([^*]+?)\*(?!\*)/g, '$1<em>$2</em>'); // *Text*
-  out = out.replace(/_([^_]+?)_/g, '<em>$1</em>');                   // _Text_
+        // zuletzt: Kursiv
+        out = out.replace(/(^|[^*])\*([^*]+?)\*(?!\*)/g, '$1<em>$2</em>'); // *Text*
+        out = out.replace(/_([^_]+?)_/g, '<em>$1</em>');                   // _Text_
 
-  // Zeilenumbrüche
-  out = out.replace(/\n/g, '<br>');
-  return out;
-}
-
+        // Zeilenumbrüche
+        out = out.replace(/\n/g, '<br>');
+        return out;
+      }
 
       function openModal(day){
         nbCurrentDay = day;
@@ -361,6 +373,7 @@
           return;
         }
 
+        const tzLabel = TZ_LABELS[TZ] || TZ;
         todayIso = formatDateInTZ(new Date(),TZ);
         const lastCheckable=allDays.filter(d=>d<=todayIso).slice(-1)[0]??allDays[0];
         const canCheckUntil=lastCheckable<END?lastCheckable:END;
@@ -376,13 +389,19 @@
               <p class="text-slate-300 mt-1">02.10.2025 bis 15.10.2025</p>
             </div>
             <div class="flex items-center gap-2">
+              <select id="tz-select" class="rounded-2xl px-3 py-2 bg-slate-800/60 hover:bg-slate-800 shadow-lg shadow-slate-900/40 border border-slate-700 text-slate-100">
+                <option value="Europe/Berlin">Berlin</option>
+                <option value="Atlantic/Madeira">Madeira</option>
+                <option value="Asia/Tokyo">Tokyo</option>
+                <option value="America/New_York">New York</option>
+              </select>
               <button id="theme" class="rounded-2xl px-3 py-2 bg-slate-800/60 hover:bg-slate-800 shadow-lg shadow-slate-900/40 transition" title="Theme wechseln">🌙/☀️</button>
               <button id="reset" class="rounded-2xl px-4 py-2 bg-slate-800/60 hover:bg-slate-800 shadow-lg shadow-slate-900/40 transition">Zurücksetzen</button>
             </div>
           </header>
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            ${infoCard('Heute', display(todayIso), 'Europa Berlin')}
+            ${infoCard('Heute', display(todayIso), 'Zeitzone: ' + tzLabel)}
             ${infoCard('Noch bis 15.10.', `${remainingToEnd} Tage`, 'inkl. heute gezählt')}
             ${infoCard('Fortschritt', `${progress}%`, `${doneCount} geschafft · ${openCount} offen`)}
           </div>
@@ -406,10 +425,17 @@
           <footer class="mt-10 text-slate-400 text-sm"><p>Hinweis: Fortschritt & Notizen werden zentral gespeichert.</p></footer>
         `;
 
-        $('#reset').addEventListener('click', ()=>{ 
+        // Controls
+        const tzSel = document.getElementById('tz-select');
+        if (tzSel) {
+          tzSel.value = TZ;
+          tzSel.addEventListener('change', (e)=> setTZ(e.target.value));
+        }
+
+        document.getElementById('reset').addEventListener('click', ()=>{ 
           if(confirm('Alles zurücksetzen?')){ checks={}; notes={}; save(); render(); } 
         });
-        $('#theme').addEventListener('click', ()=>{ 
+        document.getElementById('theme').addEventListener('click', ()=>{ 
           theme = (theme==='light'?'dark':'light'); 
           localStorage.setItem('theme',theme); 
           applyTheme(); 
