@@ -68,6 +68,9 @@
       .nb-textarea { width:100%; min-height:160px; border-radius:12px; border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.04); color:inherit; padding:10px 12px; resize:vertical; }
       .nb-helper { font-size:12px; opacity:.8; }
       .nb-preview { border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); border-radius:12px; padding:12px; min-height:100px; }
+      /* Vorschau-Feinschliff für neue Markups */
+      .nb-preview u { text-underline-offset: 2px; text-decoration-thickness: 2px; }
+      .nb-preview del { opacity: .95; }
 
       /* Light Theme für Modal */
       body.theme-light .nb-modal { --nb-surface:#fff; --nb-text:#111; border:1px solid rgba(0,0,0,.08); }
@@ -76,7 +79,7 @@
       body.theme-light .nb-textarea { border-color:rgba(0,0,0,.14); background:rgba(0,0,0,.03); }
       body.theme-light .nb-preview { border-color:rgba(0,0,0,.10); background:rgba(0,0,0,.02); }
 
-      /* ===== Light-Mode Tweaks (deutliche Notice + Holiday-Bild bleibt sichtbar) ===== */
+      /* ===== Light-Mode Notice + Holiday sichtbar ===== */
       body.theme-light .notice{
         background:#d1fae5 !important;   /* emerald-100 */
         border-color:#10b981 !important;  /* emerald-500 */
@@ -122,7 +125,9 @@
         <div class="nb-modal-body">
           <div class="nb-form-row">
             <textarea id="nb-text" class="nb-textarea" placeholder="Schreibe deine Notiz..."></textarea>
-            <div class="nb-helper">Unterstützt: *kursiv*, _kursiv_, **fett**, __fett__. Zeilenumbrüche werden übernommen.</div>
+            <div class="nb-helper">
+              Unterstützt: _kursiv_, **fett**, __unterstrichen__, ~~durchgestrichen~~. Zeilenumbrüche werden übernommen.
+            </div>
           </div>
           <div>
             <div class="nb-helper" style="margin-bottom:6px">Vorschau</div>
@@ -133,14 +138,6 @@
     </div>
 
     <script type="module">
-      /* (optional) kleines Fehler-Overlay */
-      window.addEventListener('error', (e) => {
-        const div = document.createElement('div');
-        div.style.cssText = 'position:fixed;bottom:8px;left:8px;right:8px;background:#111;color:#fff;border:1px solid #ef4444;padding:10px;border-radius:12px;z-index:9999;font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;';
-        div.textContent = 'JS-Fehler: ' + (e?.error?.message || e.message || 'Unbekannt');
-        document.body.appendChild(div);
-      });
-
       const TZ = "Europe/Berlin";
       const START = "2025-10-02";
       const END = "2025-10-15";
@@ -232,17 +229,28 @@
       const nbTitle = document.getElementById('nb-modal-title');
       let nbCurrentDay = null;
 
-      function mdLite(str){
-        if(!str) return "";
-        const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-        let out = esc(str);
-        out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        out = out.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-        out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-        out = out.replace(/_([^_]+)_/g, '<em>$1</em>');
-        out = out.replace(/\n/g, '<br>');
-        return out;
-      }
+     function mdLite(str){
+       if(!str) return "";
+       const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      let out = esc(str);
+
+  // zuerst: Unterstreichen & Durchstreichen
+  out = out.replace(/__([^_]+?)__/g, '<u>$1</u>');      // __Text__  -> underline
+  out = out.replace(/~~([^~]+?)~~/g, '<del>$1</del>');  // ~~Text~~  -> strike
+
+  // dann: Fett
+  out = out.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
+
+  // zuletzt: Kursiv
+  out = out.replace(/(^|[^*])\*([^*]+?)\*(?!\*)/g, '$1<em>$2</em>'); // *Text*
+  out = out.replace(/_([^_]+?)_/g, '<em>$1</em>');                   // _Text_
+
+  // Zeilenumbrüche
+  out = out.replace(/\n/g, '<br>');
+  return out;
+}
+
+
       function openModal(day){
         nbCurrentDay = day;
         nbTitle.textContent = `Notiz – ${display(day)}`;
@@ -379,7 +387,7 @@
             ${infoCard('Fortschritt', `${progress}%`, `${doneCount} geschafft · ${openCount} offen`)}
           </div>
 
-          <!-- Notice wieder grün (Dark Mode) -->
+          <!-- Notice (grün im Dark Mode; im Light Mode via CSS oben) -->
           <div class="notice mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-400/10 p-4 flex items-center gap-3">
             <div class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></div>
             <p class="text-emerald-200">Du kannst bis einschließlich <span class="font-medium text-emerald-300">${display(canCheckUntil)}</span> abhaken.</p>
